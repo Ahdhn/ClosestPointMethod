@@ -1,5 +1,5 @@
 # ClosestPointMethod
-Simple C++ Implementation of the Closest Point Method for Surface PDEs
+Simple C++ implementation of the closest point method for surface PDEs
 
 # Building
 Clone using the following command to ensure polyscope is also included for visualization: <br />
