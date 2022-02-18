@@ -4,8 +4,7 @@ add_library(src
             Helpers.cpp
             Interpolation.cpp
             Node.cpp
-            Surface.cpp
-            Tests.cpp)
+            Surface.cpp)
 
 target_link_libraries(src 
                       Eigen3::Eigen 

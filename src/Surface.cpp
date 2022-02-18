@@ -4,29 +4,29 @@
 // surfaces with default parameters
 Surface::Surface(string surf)
 {
-    surface = surf;
+    m_surface = surf;
     
-    if(surface.compare("Circle") == 0)
+    if(m_surface.compare("Circle") == 0)
     {
-        surfaceParams.push_back(1.0); // radius of the circle
-        bBox[0] = -surfaceParams[0];
-        bBox[1] = surfaceParams[0];
+        m_surface_params.push_back(1.0); // radius of the circle
+        bBox[0] = -m_surface_params[0];
+        bBox[1] = m_surface_params[0];
     }
 
-    if(surface.compare("Sphere") == 0)
+    if(m_surface.compare("Sphere") == 0)
     {
-        surfaceParams.push_back(1.0); // radius of the sphere
-        bBox[0] = -surfaceParams[0];
-        bBox[1] = surfaceParams[0];
+        m_surface_params.push_back(1.0); // radius of the sphere
+        bBox[0] = -m_surface_params[0];
+        bBox[1] = m_surface_params[0];
     }
 
-    if(surface.compare("Arc") == 0)
+    if(m_surface.compare("Arc") == 0)
     {
-        surfaceParams.push_back(1.0); // radius of the circle
-        surfaceParams.push_back(-3*M_PI_4); // angle1
-        surfaceParams.push_back(M_PI_4); // angle2
-        bBox[0] = -surfaceParams[0];
-        bBox[1] = surfaceParams[0];
+        m_surface_params.push_back(1.0); // radius of the circle
+        m_surface_params.push_back(-3*M_PI_4); // angle1
+        m_surface_params.push_back(M_PI_4); // angle2
+        bBox[0] = -m_surface_params[0];
+        bBox[1] = m_surface_params[0];
     }
 }
 
@@ -34,32 +34,32 @@ Surface::Surface(string surf)
 // allow user to specify surface parameters instead
 Surface::Surface(string surf, vector<double> &params)
 {
-    surface = surf;
-    surfaceParams = params;
-    bBox[0] = -surfaceParams[0];
-    bBox[1] = surfaceParams[0];
+    m_surface = surf;
+    m_surface_params = params;
+    bBox[0] = -m_surface_params[0];
+    bBox[1] = m_surface_params[0];
 }
 
 
-void Surface::GetClosestPoints(vector<vector<double>> &x)
+void Surface::GetClosestPoints(const vector<vector<double>> &x)
 {
-    cpxg.resize(x.size(), vector<double>(x[0].size()));
-    dist.resize(x.size());
-    bdyg.resize(x.size(), 0.0);
+    m_cpxg.resize(x.size(), vector<double>(x[0].size()));
+    m_dist.resize(x.size());
+    m_bdyg.resize(x.size(), 0.0);
 
-    if(surface.compare("Circle") == 0)
+    if(m_surface.compare("Circle") == 0)
     {
         cpCircle(x);
     }
-    else if(surface.compare("Point2D") == 0)
+    else if(m_surface.compare("Point2D") == 0)
     {
         cpPoint2D(x);
     }
-    else if(surface.compare("Arc") == 0)
+    else if(m_surface.compare("Arc") == 0)
     {
         cpArc(x);
     }
-    else if(surface.compare("Sphere") == 0)
+    else if(m_surface.compare("Sphere") == 0)
     {
         cpSphere(x);
     }
@@ -73,91 +73,121 @@ void Surface::GetClosestPoints(vector<vector<double>> &x)
 // make a vector of just the closest points in the computational band
 void Surface::BandClosestPoints(Grid &g)
 {
-    cpx.resize(g.sizeBand, vector<double>(g.dim));
-    for(int i = 0; i < g.sizeBand; ++i)
+    m_cpx.resize(g.sizeBand(), vector<double>(g.dim()));
+    for(int i = 0; i < g.sizeBand(); ++i)
     {
-        for(int d = 0; d < g.dim; ++d)
+        for(int d = 0; d < g.dim(); ++d)
         {
-            cpx[i][d] = cpxg[g.bandNodes[i].recIndex][d];
+            m_cpx[i][d] = m_cpxg[g.bandNode(i).recIndex()][d];
         }
     }
     
     // for open surfaces, all zeros if it is a closed surface
-    bdy.resize(g.sizeBand);
-    for(int i = 0; i < g.sizeBand; ++i)
+    m_bdy.resize(g.sizeBand());
+    for(int i = 0; i < g.sizeBand(); ++i)
     {
-        bdy[i] = bdyg[g.bandNodes[i].recIndex];
+        m_bdy[i] = m_bdyg[g.bandNode(i).recIndex()];
     }
 }
+
+void Surface::GetSurfaceParameterization(int &Np)
+{
+    if(m_surface.compare("Circle") == 0)
+    {
+        m_xp.resize(Np, vector<double>(2));
+        m_thetap.resize(Np);
+        paramCircle(Np);
+    }
+    else if(m_surface.compare("Sphere") == 0)
+    {
+        m_xp.resize(Np, vector<double>(3));
+        m_thetap.resize(Np);
+        m_phip.resize(Np);
+        paramSphere(Np);
+    }
+    else if(m_surface.compare("Arc") == 0)
+    {
+        m_xp.resize(Np, vector<double>(2));
+        m_thetap.resize(Np);
+        paramArc(Np);
+    }
+    else
+    {
+        cout << "Invalid surface type in Surface::GetSurfaceParameterization." << endl;
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+//          Private Functions
+/////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 //          CLOSEST POINT FUNCTIONS
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 // Closest point to a circle embedded in 2 or 3 dimensions
 // TO DO: do it for n-dimensions
-void Surface::cpCircle(vector<vector<double>> &x)
+void Surface::cpCircle(const vector<vector<double>> &x)
 {
-    double R = surfaceParams[0];
+    double R = m_surface_params[0];
     double theta;
     double gridNorm;
     int dim = x[0].size();
     for(int i = 0; i < x.size(); ++i)
     {
         theta = atan2(x[i][1], x[i][0]);
-        cpxg[i][0] = R * cos(theta);
-        cpxg[i][1] = R * sin(theta);
+        m_cpxg[i][0] = R * cos(theta);
+        m_cpxg[i][1] = R * sin(theta);
         if(dim == 3)
         {
-            cpxg[i][2] = 0.0;
+            m_cpxg[i][2] = 0.0;
         }
         
-        dist[i] = 0.0;
+        m_dist[i] = 0.0;
         for(int d = 0; d < dim; ++d)
         {
-            dist[i] += pow(x[i][d] - cpxg[i][d], 2);
+            m_dist[i] += pow(x[i][d] - m_cpxg[i][d], 2);
         }
-        dist[i] = sqrt(dist[i]);
+        m_dist[i] = sqrt(m_dist[i]);
     }
 }
 
 
-void Surface::cpSphere(vector<vector<double>> &x)
+void Surface::cpSphere(const vector<vector<double>> &x)
 {
-    double R = surfaceParams[0];
+    double R = m_surface_params[0];
     double theta;
     double phi;
 
     for(int i = 0; i < x.size(); ++i)
     {
         theta = atan2(x[i][1], x[i][0]);
-        dist[i] = sqrt( pow(x[i][0],2) + pow(x[i][1],2) + pow(x[i][2],2) );
-        if(dist[i] != 0)
+        m_dist[i] = sqrt( pow(x[i][0],2) + pow(x[i][1],2) + pow(x[i][2],2) );
+        if(m_dist[i] != 0)
         {
-            phi = acos(x[i][2] / dist[i]);
+            phi = acos(x[i][2] / m_dist[i]);
         }
         else
         {
             phi = 0.0; // pick a point on the surface for the (0,0,0) grid point
         }
 
-        cpxg[i][0] = R * sin(phi) * cos(theta);
-        cpxg[i][1] = R * sin(phi) * sin(theta);
-        cpxg[i][2] = R * cos(phi);
+        m_cpxg[i][0] = R * sin(phi) * cos(theta);
+        m_cpxg[i][1] = R * sin(phi) * sin(theta);
+        m_cpxg[i][2] = R * cos(phi);
         
-        dist[i] -= R;
+        m_dist[i] -= R;
     }
 }
 
 
 // arc specified by portion of the circle between [angle1, angle2]. These angles must be specified in the interval (-pi, pi].
-void Surface::cpArc(vector<vector<double>> &x)
+void Surface::cpArc(const vector<vector<double>> &x)
 {
-    double R = surfaceParams[0];
-    double angle1 = surfaceParams[1];
-    double angle2 = surfaceParams[2];
+    double R = m_surface_params[0];
+    double angle1 = m_surface_params[1];
+    double angle2 = m_surface_params[2];
     int dim = x[0].size();
 
     if(angle1 < -M_PI)
@@ -180,71 +210,71 @@ void Surface::cpArc(vector<vector<double>> &x)
     double halfDist = 0.5 * (2 * M_PI - (angle2 - angle1));
 
     double theta;
-    bdyg.resize(x.size());
+    m_bdyg.resize(x.size());
     for(int i = 0; i < x.size(); ++i)
     {
         theta = atan2(x[i][1], x[i][0]);
 
         if(theta > angle1 & theta < angle2)
         {
-            cpxg[i][0] = R * cos(theta);
-            cpxg[i][1] = R * sin(theta);
-            bdyg[i] = 0;
+            m_cpxg[i][0] = R * cos(theta);
+            m_cpxg[i][1] = R * sin(theta);
+            m_bdyg[i] = 0;
         }
         else 
         {
             if(theta <= angle1 & theta >= angle1 - halfDist)
             {
-                bdyg[i] = 1; // assign point to first boundary
-                cpxg[i][0] = R * cos(angle1);
-                cpxg[i][1] = R * sin(angle1);
+                m_bdyg[i] = 1; // assign point to first boundary
+                m_cpxg[i][0] = R * cos(angle1);
+                m_cpxg[i][1] = R * sin(angle1);
             }
             else if(theta <= angle1 & theta < angle1 - halfDist)
             {
-                bdyg[i] = 2; // assign point to second boundary
-                cpxg[i][0] = R * cos(angle2);
-                cpxg[i][1] = R * sin(angle2);
+                m_bdyg[i] = 2; // assign point to second boundary
+                m_cpxg[i][0] = R * cos(angle2);
+                m_cpxg[i][1] = R * sin(angle2);
             }
             else if(theta >= angle2 & theta < angle2 + halfDist)
             {
-                bdyg[i] = 2; // assign point to second boundary
-                cpxg[i][0] = R * cos(angle2);
-                cpxg[i][1] = R * sin(angle2);
+                m_bdyg[i] = 2; // assign point to second boundary
+                m_cpxg[i][0] = R * cos(angle2);
+                m_cpxg[i][1] = R * sin(angle2);
             }
             else if(theta >= angle2 & theta >= angle2 + halfDist)
             {
-                bdyg[i] = 1; // assign point to second boundary
-                cpxg[i][0] = R * cos(angle1);
-                cpxg[i][1] = R * sin(angle1);
+                m_bdyg[i] = 1; // assign point to second boundary
+                m_cpxg[i][0] = R * cos(angle1);
+                m_cpxg[i][1] = R * sin(angle1);
             }
         }
 
         if(dim == 3)
         {
-            cpxg[i][2] = 0.0;
+            m_cpxg[i][2] = 0.0;
         }
         
-        dist[i] = 0.0;
+        m_dist[i] = 0.0;
         for(int d = 0; d < dim; ++d)
         {
-            dist[i] += pow(x[i][d] - cpxg[i][d], 2);
+            m_dist[i] += pow(x[i][d] - m_cpxg[i][d], 2);
         }
-        dist[i] = sqrt(dist[i]);
+        m_dist[i] = sqrt(m_dist[i]);
     }
 }
 
 
-void Surface::cpPoint2D(vector<vector<double>> &x)
+void Surface::cpPoint2D(const vector<vector<double>> &x)
 {
-    double xc = surfaceParams[0];
-    double yc = surfaceParams[1];
+    double xc = m_surface_params[0];
+    double yc = m_surface_params[1];
 
     for(int i = 0; i < x.size(); ++i)
     {
-        cpxg[i][0] = xc;
-        cpxg[i][1] = yc;
+        m_cpxg[i][0] = xc;
+        m_cpxg[i][1] = yc;
         
-        dist[i] = sqrt(pow(x[i][0] - xc, 2) + pow(x[i][1] - yc, 2));
+        m_dist[i] = sqrt(pow(x[i][0] - xc, 2) + pow(x[i][1] - yc, 2));
     }
 }
 
@@ -253,45 +283,16 @@ void Surface::cpPoint2D(vector<vector<double>> &x)
 //  SURFACE PARAMETRIZATIONS (for visualization - final solution on nicely spaced points)
 ///////////////////////////////////////////////////////////////////////////////////
 
-
-void Surface::GetSurfaceParameterization(int &Np)
-{
-    if(surface.compare("Circle") == 0)
-    {
-        xp.resize(Np, vector<double>(2));
-        thetap.resize(Np);
-        paramCircle(Np);
-    }
-    else if(surface.compare("Sphere") == 0)
-    {
-        xp.resize(Np, vector<double>(3));
-        thetap.resize(Np);
-        phip.resize(Np);
-        paramSphere(Np);
-    }
-    else if(surface.compare("Arc") == 0)
-    {
-        xp.resize(Np, vector<double>(2));
-        thetap.resize(Np);
-        paramArc(Np);
-    }
-    else
-    {
-        cout << "Invalid surface type in Surface::GetSurfaceParameterization." << endl;
-    }
-}
-
-
 void Surface::paramCircle(int &Np)
 {
-    double R = surfaceParams[0];
+    double R = m_surface_params[0];
     double dtheta = 2 * M_PI / (Np - 1);
 
     for(int i = 0; i < Np; ++i)
     {
-        thetap[i] = i * dtheta;
-        xp[i][0] = R * cos(thetap[i]);
-        xp[i][1] = R * sin(thetap[i]);
+        m_thetap[i] = i * dtheta;
+        m_xp[i][0] = R * cos(m_thetap[i]);
+        m_xp[i][1] = R * sin(m_thetap[i]);
     }
 }
 
@@ -304,7 +305,7 @@ void Surface::paramSphere(int &Np)
         cout << "Np must be the square of some number for Surface::paramSphere" << endl;
     }
     int sqrtNp = sqrt(Np);
-    double R = surfaceParams[0];
+    double R = m_surface_params[0];
     double dtheta = 2 * M_PI / (sqrtNp - 1);
     double dphi = M_PI / (sqrtNp - 1);
 
@@ -312,31 +313,31 @@ void Surface::paramSphere(int &Np)
     {
         for(int j = 0; j < sqrtNp; ++j)
         {
-            thetap[i * sqrtNp + j] = i * dtheta;
-            phip[i * sqrtNp + j] = j * dphi;
+            m_thetap[i * sqrtNp + j] = i * dtheta;
+            m_phip[i * sqrtNp + j] = j * dphi;
         }
     }
 
     for(int i = 0; i < Np; ++i)
     {
-        xp[i][0] = R * sin(phip[i]) * cos(thetap[i]);
-        xp[i][1] = R * sin(phip[i]) * sin(thetap[i]);
-        xp[i][2] = R * cos(phip[i]);
+        m_xp[i][0] = R * sin(m_phip[i]) * cos(m_thetap[i]);
+        m_xp[i][1] = R * sin(m_phip[i]) * sin(m_thetap[i]);
+        m_xp[i][2] = R * cos(m_phip[i]);
     }
 }
 
 
 void Surface::paramArc(int &Np)
 {
-    double R = surfaceParams[0];
-    double angle1 = surfaceParams[1];
-    double angle2 = surfaceParams[2];
+    double R = m_surface_params[0];
+    double angle1 = m_surface_params[1];
+    double angle2 = m_surface_params[2];
     double dtheta = (angle2 - angle1) / (Np - 1);
 
     for(int i = 0; i < Np; ++i)
     {
-        thetap[i] = angle1 + i * dtheta;
-        xp[i][0] = R * cos(thetap[i]);
-        xp[i][1] = R * sin(thetap[i]);
+        m_thetap[i] = angle1 + i * dtheta;
+        m_xp[i][0] = R * cos(m_thetap[i]);
+        m_xp[i][1] = R * sin(m_thetap[i]);
     }
 }

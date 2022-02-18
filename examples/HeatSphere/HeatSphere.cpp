@@ -17,12 +17,12 @@ static bool g_run_sim = false;
 static polyscope::PointCloud* g_plotting_points;
 
 Helpers h;
-Grid g(3 /* interpolation order */, 3 /* embedding space dimension */);
 Surface s("Sphere");
+int powGridCell = 5;
+Grid g(3 /* interpolation order */, 3 /* embedding space dimension */, s.bBox, powGridCell);
 SpMat L, E;
 VectorXd u;
 
-double powGridCell = 5;
 double dt;
 bool isImplicit = false;
     
@@ -74,12 +74,12 @@ void callback()
 
 void initialize(bool visualizeOutput = true)
 {
-    h.SetupMatrices(powGridCell, g, s, E, L);
+    h.SetupMatrices(g, s, E, L);
 
     u = h.SetInitialCondition(s);
 
     // time stepping heat flow
-    dt = 0.2 * g.dx[0] * g.dx[0]; // gives second-order with both explicit and implicit Euler, as expected
+    dt = 0.2 * g.dx()[0] * g.dx()[0]; // gives second-order with both explicit and implicit Euler, as expected
     
     if(isImplicit) // for implicit Euler
     {
@@ -90,15 +90,15 @@ void initialize(bool visualizeOutput = true)
         }
     }
 
-    plotE.resize(Np, g.sizeBand);
+    plotE.resize(Np, g.sizeBand());
     h.GetPlotInterpMatrix(g, s, plotE, Np);
     VectorXd uplot = plotE * u;
 
     // Visualize with polyscope
     if(visualizeOutput)
     {   
-        string cloudName = "Surface with dx = " + to_string(g.dx[0]);
-        g_plotting_points = polyscope::registerPointCloud(cloudName, s.xp);
+        string cloudName = "Surface with dx = " + to_string(g.dx()[0]);
+        g_plotting_points = polyscope::registerPointCloud(cloudName, s.xp());
         g_plotting_points->addScalarQuantity("uplot", uplot)->setEnabled(true);
         g_plotting_points->setPointRadius(0.015);
     }

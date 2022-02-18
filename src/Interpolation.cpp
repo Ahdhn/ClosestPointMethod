@@ -6,7 +6,7 @@
 
 // #define INTERPOLATION_TESTS
 
-Interpolation::Interpolation(Grid &g, vector<vector<double>> &xquery)
+Interpolation::Interpolation(Grid &g, const vector<vector<double>> &xquery)
 {
     xq = xquery;
     Nq = xq.size();
@@ -15,9 +15,74 @@ Interpolation::Interpolation(Grid &g, vector<vector<double>> &xquery)
     Ibpt.resize(Nq);
     FindInterpolationBasePoint(g);
 
-    w.resize(g.dim, vector<vector<double>>(Nq, vector<double>(g.p+1)));
+    w.resize(g.dim(), vector<vector<double>>(Nq, vector<double>(g.p()+1)));
     BuildInterpolationWeights(g, w);
 }
+
+
+void Interpolation::BuildInterpolationMatrix(Grid &g, SpMat &E)
+{
+    vector<T> coeffs; // list of non-zeros coefficients, (row, col, value) triplets to be used to construct sparse matrix afterward
+
+    if(g.dim() == 2)
+    {
+        int xindex;
+        int findex;
+        for(int q = 0; q < Nq; ++q)
+        {
+            xindex = Ibpt[q];
+            findex = Ibpt[q];
+            for(int i = 0; i < g.p()+1; ++i)
+            {
+                for(int j = 0; j < g.p()+1; ++j)
+                {
+                    coeffs.push_back(T(q, g.bandNode(findex).bandIndex(), w[1][q][j] * w[0][q][i]));
+                    findex = g.bandNode(findex).neighbour(2)->bandIndex(); // move one neighbour up
+                }
+                findex = g.bandNode(xindex).neighbour(0)->bandIndex(); // move one neighbour right, from the current x bottom base point
+                xindex = findex;
+            }
+        }
+    }
+    else if(g.dim() == 3)
+    {
+        int xindex;
+        int yindex;
+        int zindex;
+        for(int q = 0; q < Nq; ++q)
+        {
+            xindex = Ibpt[q];
+            yindex = Ibpt[q];
+            zindex = Ibpt[q];
+            for(int i = 0; i < g.p()+1; ++i)
+            {
+                for(int j = 0; j < g.p()+1; ++j)
+                {
+                    for(int k = 0; k < g.p()+1; ++k)
+                    {
+                        coeffs.push_back(T(q, g.bandNode(zindex).bandIndex(), w[2][q][k] * w[1][q][j] * w[0][q][i]));
+                        zindex = g.bandNode(zindex).neighbour(4)->bandIndex(); // move +z one neighbour
+                    }
+                    zindex = g.bandNode(yindex).neighbour(2)->bandIndex(); // move one neighbour up
+                    yindex = zindex;
+                }
+                zindex = g.bandNode(xindex).neighbour(0)->bandIndex(); // move one neighbour right, from the current x bottom base point
+                yindex = zindex;
+                xindex = zindex;
+            }
+        }
+    }
+    else
+    {
+        cout << "Dimension of embedding space not implemented in Interpolation::BuildBandedGriddedInterpolationMatrix" << endl;
+    }
+    E.setFromTriplets(coeffs.begin(), coeffs.end());
+
+#ifdef INTERPOLATION_TESTS
+    TestRowSumOne(E);
+#endif
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 //      ALIGNING STENCIL AROUND QUERY POINT
@@ -55,46 +120,46 @@ void Interpolation::FindInterpolationBasePoint(Grid &g) // TO DO: put safety che
     polyscope::registerPointCloud("CompBand", nodes);
 #endif
     
-    vector<int> I1d(g.dim);
+    vector<int> I1d(g.dim());
     for(int q = 0; q < Nq; ++q)
     {
         // TO DO: optimize this to get the linear index for any dimension, should also be done in Grid::BuildRectangularGrid
-        if(g.p % 2 == 0)
+        if(g.p() % 2 == 0)
         {
-            for(int d = 0; d < g.dim; ++d)
+            for(int d = 0; d < g.dim(); ++d)
             {
                 // change below round to floor will give asymmetric interpolation stencil, but this breaks the stencils for even p in 3D, had to increase bandwidth for it to work
-                I1d[d] = round((xq[q][d] - g.xstart[d]) / g.dx[d]); // index of nearest lower left (actually, it is lower left after the shifting below right?) grid point in the interpolation stencil
+                I1d[d] = round((xq[q][d] - g.xstart()[d]) / g.dx()[d]); // index of nearest lower left (actually, it is lower left after the shifting below right?) grid point in the interpolation stencil
             }
         }
         else
         {
-            for(int d = 0; d < g.dim; ++d)
+            for(int d = 0; d < g.dim(); ++d)
             {
-                I1d[d] = floor((xq[q][d] - g.xstart[d]) / g.dx[d]); // index of nearest lower left (actually, it is lower left after the shifting below right?) grid point in the interpolation stencil
+                I1d[d] = floor((xq[q][d] - g.xstart()[d]) / g.dx()[d]); // index of nearest lower left (actually, it is lower left after the shifting below right?) grid point in the interpolation stencil
             }
         }
         
         Ibpt[q] = 0;
-        for(int d = 0; d < g.dim; ++d)
+        for(int d = 0; d < g.dim(); ++d)
         {
             int bptMult = 1;
-            for(int l = d+1; l < g.dim; ++l)
+            for(int l = d+1; l < g.dim(); ++l)
             {
-                bptMult *= g.N1d[l]; // store just the linear index
+                bptMult *= g.N1d(l); // store just the linear index
             }
             Ibpt[q] += bptMult * I1d[d];
         }
         // above gives the nearest point in terms of the full rectangular grid, now change to banded grid
-        Ibpt[q] = g.gridNodes[Ibpt[q]].bandIndex;
+        Ibpt[q] = g.gridNode(Ibpt[q]).bandIndex();
 
         // move neighbours from the base point above to get to the correct lower left corner of the interpolation stencil, the above only gives a nearest grid point to the query point
-        int numShifts = (g.p % 2 == 0) ? g.p/2 : (g.p-1)/2;
+        int numShifts = (g.p() % 2 == 0) ? g.p()/2 : (g.p()-1)/2;
         for(int i = 0; i < numShifts; ++i) 
         {
-            for(int d = 0; d < g.dim; ++d)
+            for(int d = 0; d < g.dim(); ++d)
             {
-                Ibpt[q] = g.bandNodes[Ibpt[q]].neighbours[2 * d + 1]->bandIndex; // move negative one neighbour, g.p/2 times, in each direction
+                Ibpt[q] = g.bandNode(Ibpt[q]).neighbour(2 * d + 1)->bandIndex(); // move negative one neighbour, g.p/2 times, in each direction
             }
         }
 
@@ -149,7 +214,7 @@ void Interpolation::BuildInterpolationWeights1D(Grid &g, vector<double> &x, doub
     // check to see if any x[j] = xq
     bool isInterpPoint = false;
     int interpPoint;
-    for(int j = 0; j < g.p+1; ++j)
+    for(int j = 0; j < g.p()+1; ++j)
     {
         if(xq_subset == x[j])
         {
@@ -161,7 +226,7 @@ void Interpolation::BuildInterpolationWeights1D(Grid &g, vector<double> &x, doub
     if(isInterpPoint)
     {
         // set all weights to zero except the one for xq = x[j]
-        for(int j = 0; j < g.p+1; ++j)
+        for(int j = 0; j < g.p()+1; ++j)
         {
             w[j] = 0.0;
         }
@@ -171,13 +236,13 @@ void Interpolation::BuildInterpolationWeights1D(Grid &g, vector<double> &x, doub
     {
         // add dependence on the query point
         double wqSum = 0.0;
-        for(int j = 0; j < g.p+1; ++j)
+        for(int j = 0; j < g.p()+1; ++j)
         {
             w[j] /= xq_subset - x[j];
             wqSum += w[j];
         }
 
-        for(int j = 0; j < g.p+1; ++j)
+        for(int j = 0; j < g.p()+1; ++j)
         {
             w[j] /= wqSum;
         }
@@ -189,85 +254,21 @@ void Interpolation::BuildInterpolationWeights(Grid &g, vector<vector<vector<doub
 {
     // compute interpolation weights
     int index;
-    vector<double> x(g.p+1);
-    for(int d = 0; d < g.dim; ++d) // for each direction x,y(,z)
+    vector<double> x(g.p()+1);
+    for(int d = 0; d < g.dim(); ++d) // for each direction x,y(,z)
     {
         for(int q = 0; q < Nq; ++q)
         {
             index = Ibpt[q];
-            x[0] = g.xb[Ibpt[q]][d];
-            for(int i = 1; i < g.p+1; ++i)
+            x[0] = g.x()[Ibpt[q]][d];
+            for(int i = 1; i < g.p()+1; ++i)
             {
-                x[i] = g.xb[g.bandNodes[index].neighbours[2 * d]->bandIndex][d];
-                index = g.bandNodes[index].neighbours[2 * d]->bandIndex; // set index to your neighbour, to move one neighbour at a time
+                x[i] = g.x()[g.bandNode(index).neighbour(2 * d)->bandIndex()][d];
+                index = g.bandNode(index).neighbour(2 * d)->bandIndex(); // set index to your neighbour, to move one neighbour at a time
             }
             BuildInterpolationWeights1D(g, x, xq[q][d], w[d][q]);
         }
     }
-}
-
-
-void Interpolation::BuildInterpolationMatrix(Grid &g, SpMat &E)
-{
-    vector<T> coeffs; // list of non-zeros coefficients, (row, col, value) triplets to be used to construct sparse matrix afterward
-
-    if(g.dim == 2)
-    {
-        int xindex;
-        int findex;
-        for(int q = 0; q < Nq; ++q)
-        {
-            xindex = Ibpt[q];
-            findex = Ibpt[q];
-            for(int i = 0; i < g.p+1; ++i)
-            {
-                for(int j = 0; j < g.p+1; ++j)
-                {
-                    coeffs.push_back(T(q, g.bandNodes[findex].bandIndex, w[1][q][j] * w[0][q][i]));
-                    findex = g.bandNodes[findex].neighbours[2]->bandIndex; // move one neighbour up
-                }
-                findex = g.bandNodes[xindex].neighbours[0]->bandIndex; // move one neighbour right, from the current x bottom base point
-                xindex = findex;
-            }
-        }
-    }
-    else if(g.dim == 3)
-    {
-        int xindex;
-        int yindex;
-        int zindex;
-        for(int q = 0; q < Nq; ++q)
-        {
-            xindex = Ibpt[q];
-            yindex = Ibpt[q];
-            zindex = Ibpt[q];
-            for(int i = 0; i < g.p+1; ++i)
-            {
-                for(int j = 0; j < g.p+1; ++j)
-                {
-                    for(int k = 0; k < g.p+1; ++k)
-                    {
-                        coeffs.push_back(T(q, g.bandNodes[zindex].bandIndex, w[2][q][k] * w[1][q][j] * w[0][q][i]));
-                        zindex = g.bandNodes[zindex].neighbours[4]->bandIndex; // move +z one neighbour
-                    }
-                    zindex = g.bandNodes[yindex].neighbours[2]->bandIndex; // move one neighbour up
-                    yindex = zindex;
-                }
-                zindex = g.bandNodes[xindex].neighbours[0]->bandIndex; // move one neighbour right, from the current x bottom base point
-                yindex = zindex;
-                xindex = zindex;
-            }
-        }
-    }
-    else
-    {
-        cout << "Dimension of embedding space not implemented in Interpolation::BuildBandedGriddedInterpolationMatrix" << endl;
-    }
-    E.setFromTriplets(coeffs.begin(), coeffs.end());
-
-#ifdef INTERPOLATION_TESTS
-    TestRowSumOne(E);
-#endif
 }
 
 
@@ -300,33 +301,33 @@ void Interpolation::VisualizeInterpolationStencil(int &q, Grid &g, int &Ibpt, ve
     vector<int> stencilIndices;
     xindex = Ibpt;
     findex = Ibpt;
-    for(int i = 0; i < g.p+1; ++i)
+    for(int i = 0; i < g.p()+1; ++i)
     {
-        for(int j = 0; j < g.p+1; ++j)
+        for(int j = 0; j < g.p()+1; ++j)
         {
-            stencilIndices.push_back(g.bandNodes[findex].bandIndex);
-            if(g.bandNodes[findex].neighbours[2] == nullptr)
+            stencilIndices.push_back(g.bandNode(findex).bandIndex());
+            if(g.bandNode(findex).neighbour(2) == nullptr)
             {
                 cout << "problem with up neighbour in Interpolation::TestInterpolationStencil" << endl;
             }
-            findex = g.bandNodes[findex].neighbours[2]->bandIndex; // move one neighbour up
+            findex = g.bandNode(findex).neighbour(2)->bandIndex(); // move one neighbour up
         }
-        if(g.bandNodes[xindex].neighbours[0] == nullptr)
+        if(g.bandNode(xindex).neighbour(0) == nullptr)
         {
             cout << "problem with right neighbour in Interpolation::TestInterpolationStencil" << endl;
         }
-        findex = g.bandNodes[xindex].neighbours[0]->bandIndex; // move one neighbour right, from the current x bottom base point
+        findex = g.bandNode(xindex).neighbour(0)->bandIndex(); // move one neighbour right, from the current x bottom base point
         xindex = findex;
     }
 
-    int numStencil = (g.p + 1) * (g.p + 1);
+    int numStencil = (g.p() + 1) * (g.p() + 1);
     vector<vector<double>> nodes(numStencil, vector<double>(3));
     int index;
     for(int i = 0; i < numStencil; ++i)
     {
         index = stencilIndices[i];
-        nodes[i][0] = g.xb[index][0];
-        nodes[i][1] = g.xb[index][1];
+        nodes[i][0] = g.x()[index][0];
+        nodes[i][1] = g.x()[index][1];
     }
 
     int matchingIndex;
@@ -336,11 +337,11 @@ void Interpolation::VisualizeInterpolationStencil(int &q, Grid &g, int &Ibpt, ve
     for(int i = 0; i < numStencil; ++i)
     {
         index = stencilIndices[i];
-        for(int nbr = 0; nbr < 2 * g.dim; ++nbr)
+        for(int nbr = 0; nbr < 2 * g.dim(); ++nbr)
         {
-            if(g.bandNodes[index].neighbours[nbr] != nullptr)
+            if(g.bandNode(index).neighbour(nbr) != nullptr)
             {
-                endIndex = g.bandNodes[index].neighbours[nbr]->bandIndex;
+                endIndex = g.bandNode(index).neighbour(nbr)->bandIndex();
                 matchingIndex = intersection(stencilIndices, endIndex);
                 
                 if(matchingIndex != -1)

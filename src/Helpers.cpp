@@ -6,44 +6,37 @@ Helpers::Helpers()
 
 }
 
-
-// Set up rectangular embedding space grid within bounding box
-void Helpers::SetOriginalGrid(Grid &g, double (&bBox)[2], int n)
+// construct grid, compute closest points, build discrete Laplacian L, and build closest point extension E
+void Helpers::SetupMatrices(Grid &g, Surface &s, SpMat &E, SpMat &L)
 {
-    int pad = 5;
-    assert(pow(2.0, n) - 2.0 * pad > 0);
-    double dx = (bBox[1] - bBox[0]) / (pow(2.0, n) - 2.0 * pad); // add extra 2*pad*dx width to the bounding box, while making sure the number of cells is 2^n
+    GetClosestPointsAndBand(s, g);
 
-    vector<double> xstart(g.dim, bBox[0] - pad * dx), xend(g.dim, bBox[1] + pad * dx);
-    g.SetBoundingBox(xstart, xend); // x and y coordinates of bounding box
+    L.resize(g.sizeBand(), g.sizeBand());
+    GetLaplacianMatrix(g, L);
 
-    vector<double> dxVec(g.dim, dx);
-    g.SetGridSpacing(dxVec); // dx, dy 
-    
-    g.ComputeBandwidth();
-    g.BuildRectangularGrid(n);
+    E.resize(s.cpx().size(), g.sizeBand());
+    GetExtensionMatrix(g, s, E);
 }
 
 
-void Helpers::GetClosestPointsAndBand(Surface &s, Grid &g)
+// construct plotting interpolation matrix
+void Helpers::GetPlotInterpMatrix(Grid &g, Surface &s, SpMat &plotE, int &Np)
 {
-    // compute closest points and distances to all grid points    
-    s.GetClosestPoints(g.xg);
+    s.GetSurfaceParameterization(Np);
 
-    // compute the banded domain based on the distance function
-    g.SetComputationalBand(s.dist);
-    s.BandClosestPoints(g);
+    Interpolation plotInterp(g, s.xp());
+    plotInterp.BuildInterpolationMatrix(g, plotE);
 }
 
 
 VectorXd Helpers::SetInitialCondition(Surface &s)
 {
     // function in the embedding space
-    VectorXd u(s.cpx.size());
+    VectorXd u(s.cpx().size());
     double theta;
-    for(int i = 0; i < s.cpx.size(); ++i)
+    for(int i = 0; i < s.cpx().size(); ++i)
     {
-        theta = atan2(s.cpx[i][1], s.cpx[i][0]);
+        theta = atan2(s.cpx()[i][1], s.cpx()[i][0]);
         u[i] = sin(theta);
     }
 
@@ -54,57 +47,17 @@ VectorXd Helpers::SetInitialCondition(Surface &s)
 VectorXd Helpers::SetInitialCondition3D(Surface &s)
 {
     // function in the embedding space
-    VectorXd u(s.cpx.size());
+    VectorXd u(s.cpx().size());
     double theta;
     double phi;
-    for(int i = 0; i < s.cpx.size(); ++i)
+    for(int i = 0; i < s.cpx().size(); ++i)
     {
-        theta = atan2(s.cpx[i][1], s.cpx[i][0]);
-        phi = acos(s.cpx[i][2] / s.surfaceParams[0]);
+        theta = atan2(s.cpx()[i][1], s.cpx()[i][0]);
+        phi = acos(s.cpx()[i][2] / s.surfaceParams()[0]);
         u[i] = sin(theta)*sin(phi);
     }
 
     return u;
-}
-
-
-// build Laplacian matrix for grid points within band
-void Helpers::GetLaplacianMatrix(Grid &g, SpMat &L)
-{
-    FDMatrices mFDMat;
-    mFDMat.BuildLaplacianMatrix(g, L);
-}
-
-
-// interpolation on the banded grid
-void Helpers::GetExtensionMatrix(Grid &g, Surface &s, SpMat &E)
-{
-    Interpolation interp(g, s.cpx);
-    interp.BuildInterpolationMatrix(g, E);
-}
-
-
-// construct plotting interpolation matrix
-void Helpers::GetPlotInterpMatrix(Grid &g, Surface &s, SpMat &plotE, int &Np)
-{
-    s.GetSurfaceParameterization(Np);
-
-    Interpolation plotInterp(g, s.xp);
-    plotInterp.BuildInterpolationMatrix(g, plotE);
-}
-
-
-// construct grid, compute closest points, build discrete Laplacian L, and build closest point extension E
-void Helpers::SetupMatrices(int n, Grid &g, Surface &s, SpMat &E, SpMat &L)
-{
-    SetOriginalGrid(g, s.bBox, n);
-    GetClosestPointsAndBand(s, g);
-
-    L.resize(g.sizeBand, g.sizeBand);
-    GetLaplacianMatrix(g, L);
-
-    E.resize(s.cpx.size(), g.sizeBand);
-    GetExtensionMatrix(g, s, E);
 }
 
 
@@ -148,38 +101,11 @@ SpMat Helpers::ImplicitEulerMatrix(SpMat &L, SpMat &E, double &dt, vector<bool> 
 }
 
 
-// Make rows in matrix rows of the identity matrix when identityRows[i] == true
-void Helpers::SetIdentityRows(SpMat &A, vector<bool> &identityRows)
-{
-    for (int k=0; k < A.outerSize(); ++k)
-    {
-        for (SpMat::InnerIterator it(A,k); it; ++it)
-        {
-            if(identityRows[it.row()])
-            {
-                if(it.row() == it.col())
-                {
-                    it.valueRef() = 1.0;
-                }
-                else
-                {
-                    it.valueRef() = 0.0;
-                }
-            }
-        }
-    }
-}
-
-
-///////////////////////////////////////////////////
-//       Convergence studies
-//////////////////////////////////////////////////
-
 // run a convergence study for a function f that returns an error value for all dx specified
 // nStart: coarsest grid resolution power
 // numLevels: number different grid resolutions
 // f: any function that returns an error and a given grid resolution
-void Helpers::ConvergenceStudy(int nStart, int numLevels, function<vector<double>(int&)> f)
+double Helpers::ConvergenceStudy(int nStart, int numLevels, function<vector<double>(int&)> f)
 {
     // compute all grid division powers for numLevels
     vector<int> gridDivisionPower(numLevels);
@@ -204,8 +130,67 @@ void Helpers::ConvergenceStudy(int nStart, int numLevels, function<vector<double
         cout << setw(8) << error[i][1] << '\t' << setw(8) << error[i][0] << '\t' << setw(8) << order[i] << endl;
     }
 
-    cout << "Avgerage Convergence Order = " << AverageConvergenceOrder(error) << endl;
+    double avg_conv_order = AverageConvergenceOrder(error);
+    cout << "Average Convergence Order = " << avg_conv_order << endl;
+
+    return avg_conv_order;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+//          Private Functions
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void Helpers::GetClosestPointsAndBand(Surface &s, Grid &g)
+{
+    // compute closest points and distances to all grid points    
+    s.GetClosestPoints(g.xg());
+
+    // compute the banded domain based on the distance function
+    g.SetComputationalBand(s.dist());
+    s.BandClosestPoints(g);
+}
+
+
+// build Laplacian matrix for grid points within band
+void Helpers::GetLaplacianMatrix(Grid &g, SpMat &L)
+{
+    FDMatrices mFDMat;
+    mFDMat.BuildLaplacianMatrix(g, L);
+}
+
+
+// interpolation on the banded grid
+void Helpers::GetExtensionMatrix(Grid &g, Surface &s, SpMat &E)
+{
+    Interpolation interp(g, s.cpx());
+    interp.BuildInterpolationMatrix(g, E);
+}
+
+
+// Make rows in matrix rows of the identity matrix when identityRows[i] == true
+void Helpers::SetIdentityRows(SpMat &A, vector<bool> &identityRows)
+{
+    for (int k=0; k < A.outerSize(); ++k)
+    {
+        for (SpMat::InnerIterator it(A,k); it; ++it)
+        {
+            if(identityRows[it.row()])
+            {
+                if(it.row() == it.col())
+                {
+                    it.valueRef() = 1.0;
+                }
+                else
+                {
+                    it.valueRef() = 0.0;
+                }
+            }
+        }
+    }
+}
+
 
 // Compute the order of convergence
 vector<double> Helpers::ConvergenceOrder(vector<vector<double>> &error)

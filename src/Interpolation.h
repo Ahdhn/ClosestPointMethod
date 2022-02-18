@@ -14,7 +14,11 @@ using namespace std;
 
 class Interpolation{
     public:
-        Interpolation(Grid &g, vector<vector<double>> &xquery);
+        Interpolation(Grid &g, const vector<vector<double>> &xquery);
+
+        void BuildInterpolationMatrix(Grid &g, SpMat &E);
+
+    private:
 
         int Nq;
         vector<vector<double>> xq;
@@ -28,7 +32,6 @@ class Interpolation{
 
         void BuildInterpolationWeights1D(Grid &g, vector<double> &x, double &xq_subset, vector<double> &w);
         void BuildInterpolationWeights(Grid &g, vector<vector<vector<double>>> &wx);
-        void BuildInterpolationMatrix(Grid &g, SpMat &E);
 
         // testing
         void TestRowSumOne(SpMat &E);
