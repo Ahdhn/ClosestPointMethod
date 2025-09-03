@@ -13,7 +13,7 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
  
-find_package(Eigen3 3.3 REQUIRED NO_MODULE) 
+include("cmake/eigen.cmake") 
 
 add_subdirectory(deps)
 add_subdirectory(src)

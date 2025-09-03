@@ -1,5 +1,9 @@
 #include <vector>
 #include <iostream>
+#include <chrono>
+
+#define _USE_MATH_DEFINES 
+#include <cmath>
 
 #include "Grid.h"
 #include "Surface.h"

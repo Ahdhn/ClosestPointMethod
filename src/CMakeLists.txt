@@ -4,7 +4,13 @@ add_library(src
             Helpers.cpp
             Interpolation.cpp
             Node.cpp
-            Surface.cpp)
+            Surface.cpp
+			FDMatrices.h
+            Grid.h
+            Helpers.h
+            Interpolation.h
+            Node.h
+            Surface.h)
 
 target_link_libraries(src 
                       Eigen3::Eigen 
